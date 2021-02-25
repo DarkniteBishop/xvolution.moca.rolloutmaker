@@ -14,11 +14,12 @@ public class RolloutMaker {
 //	}
 	
 	public static void main (String[] args) throws java.lang.Exception{
+			
 		
-		
-			Rollout r= new Rollout("Feature-WEM-003","develop");
-			String success	="Sucess: Rollout for "+"Feature-WEM-003"+" created in Rollouts directory...";
-			String failed 	="Failed: Check Rollouts/Logs/"+"Feature-WEM-003"+".log for more details...";
+			System.out.println();
+			Rollout r= new Rollout();
+			String success	="Success: Rollout created in Rollouts directory...";
+			String failed 	="Failed: Check Rollouts/{BranchName}.log for more details...";
 			System.out.println(r.createRollout()?success:failed);
 		
 	}

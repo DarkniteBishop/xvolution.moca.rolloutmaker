@@ -6,6 +6,8 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Calendar;
 
+import javax.swing.JOptionPane;
+
 public class RolloutFileMaker {
 	
 	 String Rpath;
@@ -193,7 +195,7 @@ public class RolloutFileMaker {
         
         if((error_script == 1 || error_readme == 1))
 			System.out.println("Something went wrong...Failed to generate Rollout file");
-            //JOptionPane.showMessageDialog(null, "Success!!");
+        JOptionPane.showMessageDialog(null, "Rollout created successfully!!");
     }
 	
 	private void removeSection(ArrayList<String> removed,PrintWriter pw){
@@ -320,7 +322,7 @@ public class RolloutFileMaker {
                 if (listFile[i].isDirectory()) {
                     affectedFilesSection(listFile[i], path, pw);
                 } else {
-                    pw.println("• " + listFile[i].toString().replace(Rpath+"" , "$LESDIR"));
+                    pw.println("ï¿½ " + listFile[i].toString().replace(Rpath+"" , "$LESDIR"));
                 }
             }
         }
