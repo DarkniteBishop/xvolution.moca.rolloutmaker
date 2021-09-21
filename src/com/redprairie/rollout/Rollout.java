@@ -11,6 +11,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.FileHandler;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
@@ -18,6 +19,22 @@ import java.util.logging.SimpleFormatter;
 import javax.swing.JOptionPane;
 
 import org.apache.commons.io.*;
+import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.api.errors.NoHeadException;
+import org.eclipse.jgit.errors.RevisionSyntaxException;
+import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.lib.ObjectReader;
+import org.eclipse.jgit.lib.Repository;
+import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevTree;
+import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.revwalk.filter.MessageRevFilter;
+import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
+import org.eclipse.jgit.treewalk.AbstractTreeIterator;
+import org.eclipse.jgit.treewalk.CanonicalTreeParser;
+import org.eclipse.jgit.diff.DiffEntry;
+import org.eclipse.jgit.diff.DiffEntry.ChangeType;
 
 
 public class Rollout{
@@ -35,6 +52,8 @@ public class Rollout{
 	String getBranchName="git rev-parse --abbrev-ref HEAD"; //Command to get the current branch name
 	Logger logger;
 	ArrayList<String> removed;
+	String version = "GitRolloutMaker 1.3.0";
+	String author = "Author: Yarib Hernandez and Julio C. Diaz";
 	
 	//Constructor
 	public Rollout(){		
@@ -57,63 +76,95 @@ public class Rollout{
 		}
 	}
 	
-	/** Validates the differences between branches and invokes copy file method for each file 
-	 * @throws Exception **/
-	private void createRolloutFiles() throws Exception{		
-		//Getting the current branch name
-		String branch= executeCommand(getBranchName);		
-		branch = branch.trim();
-		createLog(branch);
-		this.Name=branch;
-		this.RollPath="Rollouts/"+branch+"/";
-		if(branch.length() == 0) {			
-			throw new Exception("It was not possible to get the branch name, make sure this is the right path or repository");			
-		}
-		System.out.println("Current branch is: "+ branch);
+	/** Validates the differences between initial commit and last commit and invokes copy file method for each file,  
+	 * @throws Exception **/	
+	public void createRolloutFiles() throws Exception {
 		
+		FileRepositoryBuilder builder = new FileRepositoryBuilder();		
+		File f = new File("");
+		Iterable<RevCommit> thecommit;
+		RevCommit initialCommit, lastCommit;
+		List<DiffEntry> filesList = null;		
 		
-		//Gettin the first branch commit		
-		getFstCommitCmd = getFstCommitCmd.replace("{branch}", branch.trim());
-		writeLog("git command: "+ getFstCommitCmd);
-		String initialCommit = executeCommand(getFstCommitCmd);	
-		if(initialCommit.length() == 0) {			
-			throw new Exception("It was not possible to get the initial commit, make sure this is the right path");			
-		}		
-		writeLog(MessageFormat.format("Initial commit: {0}", initialCommit.trim()));
-		
-		//Getting the last commit		
-		writeLog("git command: "+ getLstCommitCmd);
-		String LastCommit = executeCommand(getLstCommitCmd);
-		if(LastCommit.length() == 0) {			
-			throw new Exception("It was not possible to get the last commit, make sure you this is the right path");			
-		}		
-		writeLog(MessageFormat.format("Last commit: {0}", LastCommit.trim()));		
-		
+		try(Repository repo = builder.setGitDir(f.getParentFile()).readEnvironment().findGitDir().build()){ //Opens the existing repository
+			
+			Git git = new Git(repo);
+			
+			this.Name = repo.getBranch().trim();			
+			this.RollPath = "Rollouts/"+ this.Name +"/";
+			createLog(this.Name);
+			
+			writeLog(this.version);
+			
+			writeLog("Current branch: " + this.Name);			
+			
+			//Get the last commit
+			writeLog("Getting last commit...");
+			thecommit = git.log().add(repo.resolve(repo.getBranch())).setMaxCount(1).call();
+			if((lastCommit = thecommit.iterator().next()) == null) {
+				writeLog("Last commit not found");
+				throw new Exception("Last commit not found");				
+			}	
+			
+			writeLog("Last commit id: " + lastCommit.getName());
+			
 				
-		//Getting modified and new files
-		diffCommand = MessageFormat.format(diffCommand, initialCommit.trim(),LastCommit.trim());		
-		writeLog("git command: "+ diffCommand);		
-		String files = executeCommand(diffCommand);
-		String diff[] =files.split("\\r?\\n");
-		
-		if(diff.length <=0) {
-			System.out.println("No changes detected");
-			writeLog("No changes detected");
-			throw new Exception("No changes detected");			
+			//Get the first commit,
+			writeLog("Getting last commit...");
+			thecommit = git.log().add(repo.resolve(repo.getBranch())).setRevFilter(MessageRevFilter.create("Initial Commit for " + this.Name)) .call();
+			if((initialCommit = thecommit.iterator().next()) == null) {
+				thecommit = git.log().add(repo.resolve(repo.getBranch())).setRevFilter(MessageRevFilter.create("Innitial Commit for " + this.Name)) .call();
+				if((initialCommit = thecommit.iterator().next()) == null) {
+					writeLog("Initial commit not found");	
+					throw new Exception("Initial commit not found");	
+				}
+			}				
+			
+			writeLog("Initial commit id: " + initialCommit.getName());
+			
+			
+			//Gets the files with differences
+			writeLog("Getting the files between commits: " + initialCommit.getName() + " -> " + lastCommit.getName() + "...");			
+			filesList = listDiff(repo, git,
+					initialCommit.getName(),
+	                lastCommit.getName());	
+			
+			writeLog("Found: " + filesList.size() + " differences");
+			
+			if(filesList.size() == 0)				
+				throw new Exception("No changes detected");
+			
+				
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+			writeLog(e.getMessage().toString());
+			throw new Exception(e);
+		} catch (RevisionSyntaxException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+			writeLog(e.getMessage());
+			throw new Exception(e.getMessage());
+		} catch (NoHeadException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+			writeLog(e.getMessage());
+			throw new Exception(e.getMessage());
+		} catch (GitAPIException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+			writeLog(e.getMessage());
+			throw new Exception(e.getMessage());
 		}
 		
 		
+		//Checks if the rollout dir already exists, if so, then it deletes it so that it rebuilds it
+		File rollo = new File(this.RollPath);		
 		
-		
-		System.out.println("Modified/New files: {numfiles}".replace("{numfiles}", Integer.toString(diff.length)));	
-		writeLog("Modified/New files: {numfiles}".replace("{numfiles}", Integer.toString(diff.length)));
-		
-		//Checks if the rollout dir already exists, if so, then it deletes it
-		File rollo = new File(this.RollPath);
-		if(rollo.exists()) { //if the rollout already exist then we have to delete it and put the new files		
-			System.out.println("Removing existing rollout: "+ rollo.getPath().toString());		
+		if(rollo.exists()) { //if the rollout already exist then we have to delete it and put the new files
+			writeLog("Removing existing rollout: "+ this.RollPath);
 			Files.walkFileTree(rollo.toPath(), new SimpleFileVisitor<Path>() {
-				@Override				
+				 @Override				
 		         public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
 		             throws IOException
 		         {
@@ -135,15 +186,19 @@ public class Rollout{
 		             }
 		         }
 		     });
-		}		
+		}
 		
-		//Creating the rollout
-		System.out.println("Creating rollout: "+this.RollPath);		
-		writeLog("Creating rollout files");
-		System.out.println("Copying files**********************************");
-		for(int i=0;i<diff.length;i++)
-			copyFile(diff[i].trim(),RollPath+"pkg/"+diff[i].trim());	
-		System.out.println("Files copied**********************************");
+		//Loops over the file list and copy the files to the rollout dir
+		writeLog("Generating new rollout " + this.RollPath + "...");
+		for (DiffEntry diff : filesList) {			
+			//System.out.println("Diff: " + diff.getChangeType() + ": " + (diff.getOldPath().equals(diff.getNewPath()) ? diff.getNewPath() : diff.getOldPath() + " -> " + diff.getNewPath())); ////diff.getChangeType()  returns the type of change which could be DELETE, ADD, MODIFY
+			if(diff.getChangeType().equals(ChangeType.DELETE)) 				
+				removed.add(diff.getOldPath());			
+			else
+				copyFile(diff.getNewPath() , RollPath+"pkg/" + diff.getNewPath());
+            
+		}
+		
 		File perlfile = new File ("Rollouts\\rollout.pl");
 		
 		if(perlfile.exists()) {
@@ -158,8 +213,9 @@ public class Rollout{
 		writeLog("Rollout Instructions File Generated");
 	}
 	
-	private String executeCommand(String command) throws IOException{
-		String commandRes=null;
+	private ArrayList<String> executeCommand(String command) throws IOException{
+		//String commandRes=null;
+		ArrayList<String> commandRes = new ArrayList<String>();
 		Process proc = null;
 		try {
 			proc = rt.exec(command);
@@ -169,10 +225,11 @@ public class Rollout{
 			if(stdError.readLine()!=null)
 				System.out.println(stdError.toString());			
 			else{
-				commandRes="";
+				//commandRes="";
 				String line=null;
 				while((line=stdInput.readLine())!=null)
-					commandRes=commandRes+line+"\n";	
+					commandRes.add(line);
+					//commandRes=commandRes+line+"\n";	
 			}	
 		} catch (IOException ex) {
 			//writeLog("Failed to execute command: "+command);
@@ -188,18 +245,18 @@ public class Rollout{
 		try {			
 			Files.createDirectories(destFile.toPath().getParent());			
 			if(Files.exists(srcFile.toPath())){
-				writeLog("Copying file "+source+ "   TO   "+dest);
-				System.out.println("Copying file "+source+ "   TO   "+dest);
+				//writeLog("Copying file "+source+ "   TO   "+dest);
+				//System.out.println("Copying file "+source+ "   TO   "+dest);
 				//FileUtils.copyFile(srcFile,destFile);				
 				Files.copy(srcFile.toPath(), destFile.toPath());
 			}else{
-				System.out.println("No existe el archivo " + source);
-				writeLog("Removed file "+source);
+				//System.out.println("No existe el archivo " + source);
+				//writeLog("Removed file "+source);
 				removed.add(source);
 			}
 		} catch (IOException e) {
 			// TODO Auto-generated catch block			
-			System.out.println(e.getMessage());
+			writeLog(e.getMessage());
 			e.printStackTrace();
 		}				
 
@@ -233,6 +290,7 @@ public class Rollout{
 	
 	//Writes standard messages to log
 	private void writeLog(String logLine){
+		System.out.println(logLine);
 		logger.info(logLine);
 	}	
 	
@@ -244,5 +302,36 @@ public class Rollout{
 			errMsg=errMsg+errMsgLine+"\n";
 		writeLog(errMsg);
 	}	
+	
+	private List<DiffEntry> listDiff(Repository repository, Git git, String oldCommit, String newCommit) throws GitAPIException, IOException {
+		
+        List<DiffEntry> diffs = git.diff()
+                .setOldTree(prepareTreeParser(repository, oldCommit))
+                .setNewTree(prepareTreeParser(repository, newCommit))
+                .call();
+
+        return diffs;
+        
+        /*for (DiffEntry diff : diffs) {
+            System.out.println("Diff: " + diff.getChangeType() + ": " + (diff.getOldPath().equals(diff.getNewPath()) ? diff.getNewPath() : diff.getOldPath() + " -> " + diff.getNewPath())); 
+        }*/
+	}
+	private AbstractTreeIterator prepareTreeParser(Repository repository, String objectId) throws IOException {
+        // from the commit we can build the tree which allows us to construct the TreeParser
+        //noinspection Duplicates
+        try (RevWalk walk = new RevWalk(repository)) {
+            RevCommit commit = walk.parseCommit(repository.resolve(objectId));
+            RevTree tree = walk.parseTree(commit.getTree().getId());
+
+            CanonicalTreeParser treeParser = new CanonicalTreeParser();
+            try (ObjectReader reader = repository.newObjectReader()) {
+                treeParser.reset(reader, tree.getId());
+            }
+
+            walk.dispose();
+
+            return treeParser;
+        }
+    }
 	
 }

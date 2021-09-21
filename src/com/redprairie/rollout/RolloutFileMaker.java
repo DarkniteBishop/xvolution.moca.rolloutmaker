@@ -43,6 +43,7 @@ public class RolloutFileMaker {
 
             //Escritura de la Seccion de REPLACE            
             pw.println("\n# Replacing affected files.");
+            //pw.println("\n# Keep these replace lines commented, git already moved these files, this is just to see what files were changed.");
             replaceSection(dir,path, pw);
             
             pw.println("# Removed Files");
@@ -212,7 +213,7 @@ public class RolloutFileMaker {
 	// Replace files string
     public  void replaceSection(File dir,String path, PrintWriter pw) {
         File listFile[] = dir.listFiles();
-        if (listFile != null) {
+        if (listFile != null) {        	
             for (int i = 0; i < listFile.length; i++) {
                 if (listFile[i].isDirectory()) {
                     replaceSection(listFile[i], path, pw);
@@ -221,7 +222,7 @@ public class RolloutFileMaker {
                 	replace=replace.replace(Rpath, "");
                 	String les=" $LESDIR/" + listFile[i].toString().replaceAll("\\\\", "/");
                 	les=les.replace("pkg/" , "").replace("/"+listFile[i].getName(), "").replace(Rpath,"");
-                    pw.println(replace+les);                    
+                    pw.println(replace+les); //Not neede due to git will add the files in the corresponding folder                   
                 }
             }
         }
